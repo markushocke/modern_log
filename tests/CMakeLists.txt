@@ -1,0 +1,175 @@
+if(NOT MODERN_LOG_BUILD_TESTS)
+    return()
+endif()
+
+add_custom_target(modern_log_tests)
+
+add_executable(modern_log_core_contract_smoke
+    core_contract_smoke.cpp
+)
+
+target_compile_features(modern_log_core_contract_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_core_contract_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_core_contract_smoke)
+add_test(NAME modern_log.core_contract_smoke COMMAND modern_log_core_contract_smoke)
+
+add_executable(modern_log_queue_contract_smoke
+    queue_contract_smoke.cpp
+)
+
+target_compile_features(modern_log_queue_contract_smoke PRIVATE cxx_std_23)
+target_include_directories(modern_log_queue_contract_smoke PRIVATE ${PROJECT_SOURCE_DIR})
+
+add_dependencies(modern_log_tests modern_log_queue_contract_smoke)
+add_test(NAME modern_log.queue_contract_smoke COMMAND modern_log_queue_contract_smoke)
+
+add_executable(modern_log_sinks_contract_smoke
+    sinks_contract_smoke.cpp
+)
+
+target_compile_features(modern_log_sinks_contract_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_sinks_contract_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_sinks_contract_smoke)
+add_test(NAME modern_log.sinks_contract_smoke COMMAND modern_log_sinks_contract_smoke)
+
+add_executable(modern_log_logger_facade_smoke
+    logger_facade_smoke.cpp
+)
+
+target_compile_features(modern_log_logger_facade_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_logger_facade_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_logger_facade_smoke)
+add_test(NAME modern_log.logger_facade_smoke COMMAND modern_log_logger_facade_smoke)
+
+add_executable(modern_log_context_capture_smoke
+    context_capture_smoke.cpp
+)
+
+target_compile_features(modern_log_context_capture_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_context_capture_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_context_capture_smoke)
+add_test(NAME modern_log.context_capture_smoke COMMAND modern_log_context_capture_smoke)
+
+add_executable(modern_log_event_api_smoke
+    event_api_smoke.cpp
+)
+
+target_compile_features(modern_log_event_api_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_event_api_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_event_api_smoke)
+add_test(NAME modern_log.event_api_smoke COMMAND modern_log_event_api_smoke)
+
+add_executable(modern_log_formatter_smoke
+    formatter_smoke.cpp
+)
+
+target_compile_features(modern_log_formatter_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_formatter_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_formatter_smoke)
+add_test(NAME modern_log.formatter_smoke COMMAND modern_log_formatter_smoke)
+
+add_executable(modern_log_metrics_contract_smoke
+    metrics_contract_smoke.cpp
+)
+
+target_compile_features(modern_log_metrics_contract_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_metrics_contract_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_metrics_contract_smoke)
+add_test(NAME modern_log.metrics_contract_smoke COMMAND modern_log_metrics_contract_smoke)
+
+add_executable(modern_log_sync_sinks_smoke
+    sync_sinks_smoke.cpp
+)
+
+target_compile_features(modern_log_sync_sinks_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_sync_sinks_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_sync_sinks_smoke)
+add_test(NAME modern_log.sync_sinks_smoke COMMAND modern_log_sync_sinks_smoke)
+
+add_executable(modern_log_json_sinks_smoke
+    json_sinks_smoke.cpp
+)
+
+target_compile_features(modern_log_json_sinks_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_json_sinks_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_json_sinks_smoke)
+add_test(NAME modern_log.json_sinks_smoke COMMAND modern_log_json_sinks_smoke)
+
+add_executable(modern_log_async_logger_smoke
+    async_logger_smoke.cpp
+)
+
+target_compile_features(modern_log_async_logger_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_async_logger_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_async_logger_smoke)
+add_test(NAME modern_log.async_logger_smoke COMMAND modern_log_async_logger_smoke)
+
+add_executable(modern_log_async_metrics_smoke
+    async_metrics_smoke.cpp
+)
+
+target_compile_features(modern_log_async_metrics_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_async_metrics_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_async_metrics_smoke)
+add_test(NAME modern_log.async_metrics_smoke COMMAND modern_log_async_metrics_smoke)
+
+add_executable(modern_log_backpressure_invariants_smoke
+    backpressure_invariants_smoke.cpp
+)
+
+target_compile_features(modern_log_backpressure_invariants_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_backpressure_invariants_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_backpressure_invariants_smoke)
+add_test(NAME modern_log.backpressure_invariants_smoke COMMAND modern_log_backpressure_invariants_smoke)
+
+add_executable(modern_log_sink_failure_smoke
+    sink_failure_smoke.cpp
+)
+
+target_compile_features(modern_log_sink_failure_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_sink_failure_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_sink_failure_smoke)
+add_test(NAME modern_log.sink_failure_smoke COMMAND modern_log_sink_failure_smoke)
+
+add_executable(modern_log_async_periodic_flush_smoke
+    async_periodic_flush_smoke.cpp
+)
+
+target_compile_features(modern_log_async_periodic_flush_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_async_periodic_flush_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_async_periodic_flush_smoke)
+add_test(NAME modern_log.async_periodic_flush_smoke COMMAND modern_log_async_periodic_flush_smoke)
+
+add_executable(modern_log_async_drain_semantics_smoke
+    async_drain_semantics_smoke.cpp
+)
+
+target_compile_features(modern_log_async_drain_semantics_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_async_drain_semantics_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_async_drain_semantics_smoke)
+add_test(NAME modern_log.async_drain_semantics_smoke COMMAND modern_log_async_drain_semantics_smoke)
+
+add_executable(modern_log_external_runtime_io_smoke
+    external_runtime_io_smoke.cpp
+)
+
+target_compile_features(modern_log_external_runtime_io_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_external_runtime_io_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_external_runtime_io_smoke)
+add_test(NAME modern_log.external_runtime_io_smoke COMMAND modern_log_external_runtime_io_smoke)
