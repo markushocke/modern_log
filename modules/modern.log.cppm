@@ -12,6 +12,8 @@ module;
 #include <utility>
 #include <vector>
 
+#include "./detail/field_arena.hpp"
+
 export module modern.log;
 
 export import modern.log.core;
@@ -131,7 +133,11 @@ public:
 	)
 		: sinks_(std::move(sinks)),
 		  category_(std::move(category)),
-		  event_name_(std::move(event_name)) {}
+		  event_name_(std::move(event_name)),
+		  string_storage_(field_arena_.resource()),
+		  fields_(field_arena_.resource()) {
+		fields_.reserve(4);
+	}
 
 	template <typename Integer>
 	requires (std::is_integral_v<Integer> && !std::is_same_v<std::remove_cv_t<Integer>, bool>)
@@ -235,8 +241,9 @@ private:
 	std::shared_ptr<std::vector<std::shared_ptr<sink>>> sinks_{};
 	std::string category_{};
 	std::string event_name_{};
-	std::deque<std::string> string_storage_{};
-	std::vector<modern::log::field> fields_{};
+	detail::field_arena<1024> field_arena_{};
+	std::deque<std::pmr::string, std::pmr::polymorphic_allocator<std::pmr::string>> string_storage_;
+	std::pmr::vector<modern::log::field> fields_;
 };
 
 class logger_builder {

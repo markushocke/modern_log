@@ -74,6 +74,16 @@ target_link_libraries(modern_log_formatter_smoke PRIVATE modern_log::modern_log)
 add_dependencies(modern_log_tests modern_log_formatter_smoke)
 add_test(NAME modern_log.formatter_smoke COMMAND modern_log_formatter_smoke)
 
+add_executable(modern_log_timestamp_cache_smoke
+    timestamp_cache_smoke.cpp
+)
+
+target_compile_features(modern_log_timestamp_cache_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_timestamp_cache_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_timestamp_cache_smoke)
+add_test(NAME modern_log.timestamp_cache_smoke COMMAND modern_log_timestamp_cache_smoke)
+
 add_executable(modern_log_metrics_contract_smoke
     metrics_contract_smoke.cpp
 )
@@ -94,6 +104,16 @@ target_link_libraries(modern_log_sync_sinks_smoke PRIVATE modern_log::modern_log
 add_dependencies(modern_log_tests modern_log_sync_sinks_smoke)
 add_test(NAME modern_log.sync_sinks_smoke COMMAND modern_log_sync_sinks_smoke)
 
+add_executable(modern_log_rotating_file_sink_smoke
+    rotating_file_sink_smoke.cpp
+)
+
+target_compile_features(modern_log_rotating_file_sink_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_rotating_file_sink_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_rotating_file_sink_smoke)
+add_test(NAME modern_log.rotating_file_sink_smoke COMMAND modern_log_rotating_file_sink_smoke)
+
 add_executable(modern_log_json_sinks_smoke
     json_sinks_smoke.cpp
 )
@@ -103,6 +123,26 @@ target_link_libraries(modern_log_json_sinks_smoke PRIVATE modern_log::modern_log
 
 add_dependencies(modern_log_tests modern_log_json_sinks_smoke)
 add_test(NAME modern_log.json_sinks_smoke COMMAND modern_log_json_sinks_smoke)
+
+add_executable(modern_log_remote_sinks_smoke
+    remote_sinks_smoke.cpp
+)
+
+target_compile_features(modern_log_remote_sinks_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_remote_sinks_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_remote_sinks_smoke)
+add_test(NAME modern_log.remote_sinks_smoke COMMAND modern_log_remote_sinks_smoke)
+
+add_executable(modern_log_otel_sink_smoke
+    otel_sink_smoke.cpp
+)
+
+target_compile_features(modern_log_otel_sink_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_otel_sink_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_otel_sink_smoke)
+add_test(NAME modern_log.otel_sink_smoke COMMAND modern_log_otel_sink_smoke)
 
 add_executable(modern_log_async_logger_smoke
     async_logger_smoke.cpp

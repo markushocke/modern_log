@@ -1,5 +1,6 @@
 import modern.log;
 
+#include <cstdint>
 #include <memory>
 
 class request_context_provider final : public modern::log::context_provider {
@@ -25,6 +26,9 @@ int main() {
 		.build();
 
 	logger.info("request accepted");
+	logger.event("request.completed")
+		.field("status_code", std::uint64_t{200})
+		.submit();
 
 	return 0;
 }

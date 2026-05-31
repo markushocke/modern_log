@@ -20,8 +20,10 @@ modern_log owns:
 - backpressure policy selection and accounting
 - formatter and sink orchestration
 - logger-facing adapters that consume modern_trace and modern_runtime
+- the context_provider seam used to inject application-owned trace metadata without redefining trace primitives
 
 Rules:
 - modern_log consumes shared trace primitives and does not redefine them.
+- application-owned trace enrichment stays behind context_provider/scoped_context_provider instead of trace mutators on logger or event builders.
 - runtime-specific churn must stay behind internal adapter seams.
 - sink behavior may depend on modern_io, but modern_io must not depend on modern_log.

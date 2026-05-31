@@ -13,6 +13,7 @@ module;
 #include <future>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -23,6 +24,7 @@ module;
 #include <utility>
 #include <vector>
 
+#include "../detail/field_arena.hpp"
 #include "../detail/queue_policy.hpp"
 
 export module modern.log.async;
@@ -85,6 +87,64 @@ struct owned_record final {
 	std::string message_template{};
 	std::vector<owned_field> fields{};
 	std::uint32_t dropped_count{};
+};
+
+struct staged_field final {
+	std::string_view name{};
+	field_value value{};
+};
+
+#if defined(__cpp_lib_hardware_interference_size)
+inline constexpr std::size_t cache_line_size = std::hardware_destructive_interference_size;
+#else
+inline constexpr std::size_t cache_line_size = 64;
+#endif
+
+struct drain_workspace final {
+	void prepare(std::size_t batch_size) {
+		batch.clear();
+		records.clear();
+
+		if (batch.capacity() < batch_size) {
+			batch.reserve(batch_size);
+		}
+
+		if (records.capacity() < batch_size) {
+			records.reserve(batch_size);
+		}
+
+		if (field_batches.size() < batch_size) {
+			field_batches.resize(batch_size);
+		}
+	}
+
+	[[nodiscard]] std::vector<field>& reuse_fields(
+		std::size_t index,
+		std::size_t reserve_hint
+	) {
+		auto& reused_fields = field_batches[index];
+		reused_fields.clear();
+		if (reused_fields.capacity() < reserve_hint) {
+			reused_fields.reserve(reserve_hint);
+		}
+		return reused_fields;
+	}
+
+	std::vector<owned_record> batch{};
+	std::vector<std::vector<field>> field_batches{};
+	std::vector<record> records{};
+};
+
+struct alignas(cache_line_size) async_shared_flags final {
+	bool shutdown_requested{};
+	bool shutdown_complete{};
+	bool flush_requested{};
+	bool draining{};
+	trace_drain_state drain_state{trace_drain_state::Idle};
+};
+
+struct alignas(cache_line_size) async_shared_metrics final {
+	async_metrics counters{};
 };
 
 class runtime_worker_adapter final {
@@ -239,68 +299,71 @@ public:
 
 	[[nodiscard]] bool enqueue(owned_record record) {
 		std::unique_lock lock(mutex_);
-		++metrics_.enqueue_attempts;
+		++metrics_.counters.enqueue_attempts;
 
 		while (queue_.size() >= queue_contract_.capacity_records) {
-			if (shutdown_requested_) {
-				++metrics_.enqueue_failures;
+			if (shared_flags_.shutdown_requested) {
+				++metrics_.counters.enqueue_failures;
 				return false;
 			}
 
 			switch (policy_) {
 			case backpressure_policy::drop_newest:
-				++metrics_.dropped_records;
-				++metrics_.enqueue_failures;
+				++metrics_.counters.dropped_records;
+				++metrics_.counters.enqueue_failures;
 				return false;
 			case backpressure_policy::drop_oldest:
 				queue_.pop_front();
-				++metrics_.dropped_records;
+				++metrics_.counters.dropped_records;
 				break;
 			case backpressure_policy::block_producer:
 				idle_cv_.wait(lock, [this] {
-					return shutdown_requested_ || queue_.size() < queue_contract_.capacity_records;
+					return shared_flags_.shutdown_requested || queue_.size() < queue_contract_.capacity_records;
 				});
 				continue;
 			case backpressure_policy::sample_debug_logs:
 				if (is_debug_level(record.log_level)) {
-					++metrics_.dropped_records;
-					++metrics_.enqueue_failures;
+					++metrics_.counters.dropped_records;
+					++metrics_.counters.enqueue_failures;
 					return false;
 				}
 
 				if (drop_first_if([](const owned_record& current) {
 					return is_debug_level(current.log_level);
 				})) {
-					++metrics_.dropped_records;
+					++metrics_.counters.dropped_records;
 					break;
 				}
 
-				++metrics_.dropped_records;
-				++metrics_.enqueue_failures;
+				++metrics_.counters.dropped_records;
+				++metrics_.counters.enqueue_failures;
 				return false;
 			case backpressure_policy::priority_preserve_errors:
 				if (!is_error_level(record.log_level)) {
-					++metrics_.dropped_records;
-					++metrics_.enqueue_failures;
+					++metrics_.counters.dropped_records;
+					++metrics_.counters.enqueue_failures;
 					return false;
 				}
 
 				if (drop_first_if([](const owned_record& current) {
 					return !is_error_level(current.log_level);
 				})) {
-					++metrics_.dropped_records;
+					++metrics_.counters.dropped_records;
 					break;
 				}
 
 				queue_.pop_front();
-				++metrics_.dropped_records;
+				++metrics_.counters.dropped_records;
 				break;
 			}
 		}
 
 		queue_.push_back(std::move(record));
-		++metrics_.enqueued_records;
-		metrics_.high_water_mark = std::max(metrics_.high_water_mark, static_cast<std::uint64_t>(queue_.size()));
+		++metrics_.counters.enqueued_records;
+		metrics_.counters.high_water_mark = std::max(
+			metrics_.counters.high_water_mark,
+			static_cast<std::uint64_t>(queue_.size())
+		);
 
 		lock.unlock();
 		work_cv_.notify_one();
@@ -319,27 +382,29 @@ public:
 
 	void flush() {
 		std::unique_lock lock(mutex_);
-		flush_requested_ = true;
-		drain_state_ = trace_drain_state::Requested;
+		shared_flags_.flush_requested = true;
+		shared_flags_.drain_state = trace_drain_state::Requested;
 		work_cv_.notify_one();
 
 		idle_cv_.wait(lock, [this] {
-			return queue_.empty() && !draining_ && drain_state_ == trace_drain_state::Idle;
+			return queue_.empty()
+				&& !shared_flags_.draining
+				&& shared_flags_.drain_state == trace_drain_state::Idle;
 		});
 
-		++metrics_.flush_count;
+		++metrics_.counters.flush_count;
 	}
 
 	void shutdown() {
 		{
 			std::lock_guard lock(mutex_);
-			if (shutdown_complete_) {
+			if (shared_flags_.shutdown_complete) {
 				return;
 			}
 
-			shutdown_requested_ = true;
-			flush_requested_ = true;
-			drain_state_ = trace_drain_state::Requested;
+			shared_flags_.shutdown_requested = true;
+			shared_flags_.flush_requested = true;
+			shared_flags_.drain_state = trace_drain_state::Requested;
 		}
 
 		worker_.stop_periodic();
@@ -348,12 +413,12 @@ public:
 		worker_.join();
 
 		std::lock_guard lock(mutex_);
-		shutdown_complete_ = true;
+		shared_flags_.shutdown_complete = true;
 	}
 
 	[[nodiscard]] async_metrics snapshot() const {
 		std::lock_guard lock(mutex_);
-		auto snapshot = metrics_;
+		auto snapshot = metrics_.counters;
 		snapshot.current_queue_depth = static_cast<std::uint64_t>(queue_.size());
 		return snapshot;
 	}
@@ -373,9 +438,9 @@ private:
 
 		{
 			std::lock_guard lock(mutex_);
-			if (!shutdown_requested_ && !queue_.empty()) {
-				flush_requested_ = true;
-				drain_state_ = trace_drain_state::Requested;
+			if (!shared_flags_.shutdown_requested && !queue_.empty()) {
+				shared_flags_.flush_requested = true;
+				shared_flags_.drain_state = trace_drain_state::Requested;
 				notify = true;
 			}
 		}
@@ -407,50 +472,50 @@ private:
 	}
 
 	void worker_loop() {
-		std::vector<owned_record> batch;
+		auto& workspace = worker_workspace_;
 
 		for (;;) {
-			batch.clear();
+			workspace.batch.clear();
 			bool flush_now = false;
 			trace_drain_mode drain_mode = trace_drain_mode::Flush;
 
 			{
 				std::unique_lock lock(mutex_);
 				work_cv_.wait(lock, [this] {
-					return shutdown_requested_
-						|| flush_requested_
-						|| drain_state_ == trace_drain_state::Requested
+					return shared_flags_.shutdown_requested
+						|| shared_flags_.flush_requested
+						|| shared_flags_.drain_state == trace_drain_state::Requested
 						|| !queue_.empty();
 				});
 
-				if (queue_.empty() && shutdown_requested_) {
+				if (queue_.empty() && shared_flags_.shutdown_requested) {
 					break;
 				}
 
-				flush_now = flush_requested_;
-				flush_requested_ = false;
+				flush_now = shared_flags_.flush_requested;
+				shared_flags_.flush_requested = false;
 
 				const bool should_wait_for_batch = !flush_now
-					&& drain_state_ != trace_drain_state::Requested
-					&& !shutdown_requested_
+					&& shared_flags_.drain_state != trace_drain_state::Requested
+					&& !shared_flags_.shutdown_requested
 					&& !queue_.empty()
 					&& flush_interval_.count() > 0
 					&& queue_.size() < queue_contract_.wakeup_record_threshold;
 
 				if (should_wait_for_batch) {
 					work_cv_.wait_for(lock, flush_interval_, [this] {
-						return shutdown_requested_
-							|| flush_requested_
+						return shared_flags_.shutdown_requested
+							|| shared_flags_.flush_requested
 							|| queue_.size() >= queue_contract_.wakeup_record_threshold;
 					});
 
-					if (queue_.empty() && shutdown_requested_) {
+					if (queue_.empty() && shared_flags_.shutdown_requested) {
 						break;
 					}
 
-					if (flush_requested_) {
+					if (shared_flags_.flush_requested) {
 						flush_now = true;
-						flush_requested_ = false;
+						shared_flags_.flush_requested = false;
 					}
 				}
 
@@ -458,31 +523,31 @@ private:
 					continue;
 				}
 
-				draining_ = true;
+				shared_flags_.draining = true;
 
 				const auto limit = std::min(queue_contract_.batch_record_limit, queue_.size());
-				batch.reserve(limit);
+				workspace.prepare(limit);
 
 				for (std::size_t index = 0; index < limit; ++index) {
-					batch.push_back(std::move(queue_.front()));
+					workspace.batch.push_back(std::move(queue_.front()));
 					queue_.pop_front();
 				}
 
-				drain_mode = (flush_now || shutdown_requested_ || queue_.empty())
+				drain_mode = (flush_now || shared_flags_.shutdown_requested || queue_.empty())
 					? trace_drain_mode::Flush
 					: trace_drain_mode::NoFlush;
 			}
 
-			auto step = drain(batch, drain_mode);
+			auto step = drain(workspace, drain_mode);
 
 			{
 				std::lock_guard lock(mutex_);
-				metrics_.written_records += static_cast<std::uint64_t>(step.drained_records);
-				draining_ = false;
-				drain_state_ = queue_.empty()
+				metrics_.counters.written_records += static_cast<std::uint64_t>(step.drained_records);
+				shared_flags_.draining = false;
+				shared_flags_.drain_state = queue_.empty()
 					? trace_drain_state::Idle
 					: trace_drain_state::Requested;
-				step.next_state = drain_state_;
+				step.next_state = shared_flags_.drain_state;
 			}
 
 			idle_cv_.notify_all();
@@ -494,30 +559,26 @@ private:
 
 		{
 			std::lock_guard lock(mutex_);
-			draining_ = false;
-			drain_state_ = trace_drain_state::Idle;
+			shared_flags_.draining = false;
+			shared_flags_.drain_state = trace_drain_state::Idle;
 		}
 
 		idle_cv_.notify_all();
 	}
 
 	[[nodiscard]] trace_drain_step_result drain(
-		const std::vector<owned_record>& batch,
+		drain_workspace& workspace,
 		trace_drain_mode mode
 	) {
 		std::uint64_t sink_write_calls{};
 		std::uint64_t sink_flush_calls{};
 		std::uint64_t write_failures{};
+		const auto& batch = workspace.batch;
+		workspace.records.clear();
 
-		std::vector<std::vector<field>> field_batches;
-		field_batches.reserve(batch.size());
-
-		std::vector<record> records;
-		records.reserve(batch.size());
-
-		for (const auto& current : batch) {
-			auto& fields = field_batches.emplace_back();
-			fields.reserve(current.fields.size());
+		for (std::size_t index = 0; index < batch.size(); ++index) {
+			const auto& current = batch[index];
+			auto& fields = workspace.reuse_fields(index, current.fields.size());
 
 			for (const auto& source_field : current.fields) {
 				field target{};
@@ -551,7 +612,7 @@ private:
 				fields.push_back(target);
 			}
 
-			records.push_back(record{
+			workspace.records.push_back(record{
 				.timestamp_ns = current.timestamp_ns,
 				.log_level = current.log_level,
 				.category = current.category,
@@ -568,7 +629,7 @@ private:
 			});
 		}
 
-		const batch_view write_batch{records.data(), records.size()};
+		const batch_view write_batch{workspace.records.data(), workspace.records.size()};
 		for (const auto& target : *sinks_) {
 			if (!target) {
 				continue;
@@ -589,12 +650,12 @@ private:
 
 		if (sink_write_calls != 0 || sink_flush_calls != 0 || write_failures != 0) {
 			std::lock_guard lock(mutex_);
-			metrics_.sink_write_calls += sink_write_calls;
-			metrics_.sink_flush_calls += sink_flush_calls;
-			metrics_.write_failures += write_failures;
+			metrics_.counters.sink_write_calls += sink_write_calls;
+			metrics_.counters.sink_flush_calls += sink_flush_calls;
+			metrics_.counters.write_failures += write_failures;
 		}
 
-		return make_drain_step_result(records.size(), false);
+		return make_drain_step_result(workspace.records.size(), false);
 	}
 
 	std::shared_ptr<std::vector<std::shared_ptr<sink>>> sinks_{};
@@ -606,12 +667,9 @@ private:
 	std::condition_variable work_cv_{};
 	std::condition_variable idle_cv_{};
 	std::deque<owned_record> queue_{};
-	async_metrics metrics_{};
-	bool shutdown_requested_{};
-	bool shutdown_complete_{};
-	bool flush_requested_{};
-	bool draining_{};
-	trace_drain_state drain_state_{trace_drain_state::Idle};
+	async_shared_flags shared_flags_{};
+	async_shared_metrics metrics_{};
+	alignas(cache_line_size) drain_workspace worker_workspace_{};
 	runtime_worker_adapter worker_{};
 };
 
@@ -744,7 +802,11 @@ public:
 	)
 		: state_(std::move(state)),
 		  category_(std::move(category)),
-		  event_name_(std::move(event_name)) {}
+		  event_name_(std::move(event_name)),
+		  string_storage_(field_arena_.resource()),
+		  fields_(field_arena_.resource()) {
+		fields_.reserve(4);
+	}
 
 	template <typename Integer>
 	requires (std::is_integral_v<Integer> && !std::is_same_v<std::remove_cv_t<Integer>, bool>)
@@ -763,20 +825,20 @@ public:
 	}
 
 	async_event_builder& field(std::string_view name, bool value) {
-		detail::owned_field entry{};
-		entry.name = std::string(name);
+		detail::staged_field entry{};
+		entry.name = store_string(name);
 		entry.value.type = field_type::boolean;
-		entry.value.boolean = value;
-		fields_.push_back(std::move(entry));
+		entry.value.storage.boolean = value;
+		fields_.push_back(entry);
 		return *this;
 	}
 
 	async_event_builder& field(std::string_view name, std::string_view value) {
-		detail::owned_field entry{};
-		entry.name = std::string(name);
+		detail::staged_field entry{};
+		entry.name = store_string(name);
 		entry.value.type = field_type::string;
-		entry.value.string_storage = std::string(value);
-		fields_.push_back(std::move(entry));
+		entry.value.storage.string = store_string(value);
+		fields_.push_back(entry);
 		return *this;
 	}
 
@@ -803,43 +865,82 @@ public:
 		entry.trace_id = context.trace_id;
 		entry.span_id = context.span_id;
 		entry.traceparent = context.traceparent;
-		entry.fields = fields_;
+		entry.fields.reserve(fields_.size());
+
+		for (const auto& current_field : fields_) {
+			detail::owned_field stored_field{};
+			stored_field.name = current_field.name;
+			stored_field.value.type = current_field.value.type;
+
+			switch (current_field.value.type) {
+			case field_type::signed_integer:
+				stored_field.value.signed_integer = current_field.value.storage.signed_integer;
+				break;
+			case field_type::unsigned_integer:
+				stored_field.value.unsigned_integer = current_field.value.storage.unsigned_integer;
+				break;
+			case field_type::floating_point:
+				stored_field.value.floating_point = current_field.value.storage.floating_point;
+				break;
+			case field_type::boolean:
+				stored_field.value.boolean = current_field.value.storage.boolean;
+				break;
+			case field_type::string:
+				stored_field.value.string_storage = current_field.value.storage.string;
+				break;
+			case field_type::bytes:
+				stored_field.value.bytes_storage.assign(
+					current_field.value.storage.bytes.data,
+					current_field.value.storage.bytes.data + current_field.value.storage.bytes.size
+				);
+				break;
+			}
+
+			entry.fields.push_back(std::move(stored_field));
+		}
 
 		[[maybe_unused]] const bool enqueued = state_->enqueue(std::move(entry));
 	}
 
 private:
 	async_event_builder& add_signed_field(std::string_view name, std::int64_t value) {
-		detail::owned_field entry{};
-		entry.name = std::string(name);
+		detail::staged_field entry{};
+		entry.name = store_string(name);
 		entry.value.type = field_type::signed_integer;
-		entry.value.signed_integer = value;
-		fields_.push_back(std::move(entry));
+		entry.value.storage.signed_integer = value;
+		fields_.push_back(entry);
 		return *this;
 	}
 
 	async_event_builder& add_unsigned_field(std::string_view name, std::uint64_t value) {
-		detail::owned_field entry{};
-		entry.name = std::string(name);
+		detail::staged_field entry{};
+		entry.name = store_string(name);
 		entry.value.type = field_type::unsigned_integer;
-		entry.value.unsigned_integer = value;
-		fields_.push_back(std::move(entry));
+		entry.value.storage.unsigned_integer = value;
+		fields_.push_back(entry);
 		return *this;
 	}
 
 	async_event_builder& add_floating_field(std::string_view name, double value) {
-		detail::owned_field entry{};
-		entry.name = std::string(name);
+		detail::staged_field entry{};
+		entry.name = store_string(name);
 		entry.value.type = field_type::floating_point;
-		entry.value.floating_point = value;
-		fields_.push_back(std::move(entry));
+		entry.value.storage.floating_point = value;
+		fields_.push_back(entry);
 		return *this;
+	}
+
+	[[nodiscard]] std::string_view store_string(std::string_view value) {
+		string_storage_.emplace_back(value);
+		return string_storage_.back();
 	}
 
 	std::shared_ptr<detail::async_state> state_{};
 	std::string category_{};
 	std::string event_name_{};
-	std::vector<detail::owned_field> fields_{};
+	detail::field_arena<1024> field_arena_{};
+	std::deque<std::pmr::string, std::pmr::polymorphic_allocator<std::pmr::string>> string_storage_;
+	std::pmr::vector<detail::staged_field> fields_;
 };
 
 class async_logger_builder {

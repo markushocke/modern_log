@@ -28,8 +28,11 @@ int main() {
 
     text_formatter formatter{};
     const auto text = formatter.format(entry);
+    const batch_view batch{&entry, 1};
+    const auto batch_text = formatter.format(batch);
     json_formatter json{};
     const auto json_text = json.format(entry);
+    const auto batch_json = json.format(batch);
 
     const std::string expected =
         "timestamp=1970-01-01T00:00:00.000000042Z ts=42 level=warn category=streaming event=asset.loaded trace_id=trace-1 message=\"budget exceeded\" bytes=65536 cached=true";
@@ -37,5 +40,10 @@ int main() {
     const std::string expected_json =
         "{\"timestamp\":\"1970-01-01T00:00:00.000000042Z\",\"timestamp_ns\":42,\"level\":\"warn\",\"category\":\"streaming\",\"event\":\"asset.loaded\",\"trace_id\":\"trace-1\",\"message\":\"budget exceeded\",\"bytes\":65536,\"cached\":true}";
 
-    return text == expected && json_text == expected_json ? 0 : 1;
+    return text == expected
+        && batch_text == expected + "\n"
+        && json_text == expected_json
+        && batch_json == expected_json + "\n"
+        ? 0
+        : 1;
 }

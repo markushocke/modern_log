@@ -1,12 +1,11 @@
 module;
 
-#include <chrono>
-#include <cstdint>
-#include <iomanip>
-#include <limits>
-#include <sstream>
+#include <cstddef>
 #include <string>
 #include <string_view>
+
+#include "../detail/format_buffer.hpp"
+#include "../detail/timestamp_cache.hpp"
 
 export module modern.log.format;
 
@@ -63,100 +62,293 @@ namespace modern::log::detail {
 	return "unknown";
 }
 
-[[nodiscard]] inline std::string format_timestamp_utc(std::uint64_t timestamp_ns) {
-	if (timestamp_ns > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-		return {};
-	}
-
-	using namespace std::chrono;
-
-	const auto timestamp = sys_time<nanoseconds>{nanoseconds{static_cast<std::int64_t>(timestamp_ns)}};
-	const auto day_point = floor<days>(timestamp);
-	const auto calendar_date = year_month_day{day_point};
-	const auto time_of_day = hh_mm_ss<nanoseconds>{timestamp - day_point};
-
-	std::ostringstream stream;
-	stream << std::setfill('0')
-		<< std::setw(4) << static_cast<int>(calendar_date.year())
-		<< '-'
-		<< std::setw(2) << static_cast<unsigned>(calendar_date.month())
-		<< '-'
-		<< std::setw(2) << static_cast<unsigned>(calendar_date.day())
-		<< 'T'
-		<< std::setw(2) << time_of_day.hours().count()
-		<< ':'
-		<< std::setw(2) << time_of_day.minutes().count()
-		<< ':'
-		<< std::setw(2) << time_of_day.seconds().count()
-		<< '.'
-		<< std::setw(9) << time_of_day.subseconds().count()
-		<< 'Z';
-
-	return stream.str();
-}
-
-inline void append_field_value(std::ostringstream& stream, const field_value& value) {
+[[nodiscard]] inline std::size_t estimate_field_value_size(const field_value& value) {
 	switch (value.type) {
 	case field_type::signed_integer:
-		stream << value.storage.signed_integer;
+	case field_type::unsigned_integer:
+		return 20;
+	case field_type::floating_point:
+		return 32;
+	case field_type::boolean:
+		return 5;
+	case field_type::string:
+		return value.storage.string.size() + 2;
+	case field_type::bytes:
+		return 24;
+	}
+
+	return 0;
+}
+
+[[nodiscard]] inline std::size_t estimate_record_size(const record& entry) {
+	std::size_t size = 96
+		+ entry.category.size()
+		+ entry.event_name.size()
+		+ entry.trace_id.size()
+		+ entry.span_id.size()
+		+ entry.traceparent.size()
+		+ entry.message_template.size();
+
+	for (const auto& current_field : entry.fields) {
+		size += current_field.name.size() + 2 + estimate_field_value_size(current_field.value);
+	}
+
+	return size;
+}
+
+[[nodiscard]] inline std::size_t estimate_batch_size(batch_view batch) {
+	std::size_t size{};
+
+	for (std::size_t index = 0; index < batch.size; ++index) {
+		size += estimate_record_size(batch.data[index]) + 1;
+	}
+
+	return size;
+}
+
+inline void append_escaped_string(reusable_format_buffer& buffer, std::string_view value) {
+	for (const char current : value) {
+		switch (current) {
+		case '\\':
+			buffer.append("\\\\");
+			break;
+		case '"':
+			buffer.append("\\\"");
+			break;
+		case '\n':
+			buffer.append("\\n");
+			break;
+		case '\r':
+			buffer.append("\\r");
+			break;
+		case '\t':
+			buffer.append("\\t");
+			break;
+		default:
+			buffer.push_back(current);
+			break;
+		}
+	}
+}
+
+inline void append_quoted_string(reusable_format_buffer& buffer, std::string_view value) {
+	buffer.push_back('"');
+	append_escaped_string(buffer, value);
+	buffer.push_back('"');
+}
+
+inline void append_field_value(reusable_format_buffer& buffer, const field_value& value) {
+	switch (value.type) {
+	case field_type::signed_integer:
+		buffer.append_int64(value.storage.signed_integer);
 		break;
 	case field_type::unsigned_integer:
-		stream << value.storage.unsigned_integer;
+		buffer.append_uint64(value.storage.unsigned_integer);
 		break;
 	case field_type::floating_point:
-		stream << value.storage.floating_point;
+		buffer.append_double(value.storage.floating_point);
 		break;
 	case field_type::boolean:
-		stream << (value.storage.boolean ? "true" : "false");
+		buffer.append(value.storage.boolean ? "true" : "false");
 		break;
 	case field_type::string:
-		stream << '"' << escape_string(value.storage.string) << '"';
+		append_quoted_string(buffer, value.storage.string);
 		break;
 	case field_type::bytes:
-		stream << "<bytes:" << value.storage.bytes.size << '>';
+		buffer.append("<bytes:");
+		buffer.append_uint64(value.storage.bytes.size);
+		buffer.push_back('>');
 		break;
 	}
 }
 
-inline void append_json_string(std::ostringstream& stream, std::string_view value) {
-	stream << '"' << escape_string(value) << '"';
+inline void append_json_string(reusable_format_buffer& buffer, std::string_view value) {
+	append_quoted_string(buffer, value);
 }
 
 inline void append_json_member_name(
-	std::ostringstream& stream,
+	reusable_format_buffer& buffer,
 	std::string_view name,
 	bool& first_member
 ) {
 	if (!first_member) {
-		stream << ',';
+		buffer.push_back(',');
 	}
 
 	first_member = false;
-	append_json_string(stream, name);
-	stream << ':';
+	append_json_string(buffer, name);
+	buffer.push_back(':');
 }
 
-inline void append_json_field_value(std::ostringstream& stream, const field_value& value) {
+inline void append_json_field_value(reusable_format_buffer& buffer, const field_value& value) {
 	switch (value.type) {
 	case field_type::signed_integer:
-		stream << value.storage.signed_integer;
+		buffer.append_int64(value.storage.signed_integer);
 		break;
 	case field_type::unsigned_integer:
-		stream << value.storage.unsigned_integer;
+		buffer.append_uint64(value.storage.unsigned_integer);
 		break;
 	case field_type::floating_point:
-		stream << value.storage.floating_point;
+		buffer.append_double(value.storage.floating_point);
 		break;
 	case field_type::boolean:
-		stream << (value.storage.boolean ? "true" : "false");
+		buffer.append(value.storage.boolean ? "true" : "false");
 		break;
 	case field_type::string:
-		append_json_string(stream, value.storage.string);
+		append_json_string(buffer, value.storage.string);
 		break;
 	case field_type::bytes:
-		stream << '"' << "<bytes:" << value.storage.bytes.size << ">";
+		buffer.push_back('"');
+		buffer.append("<bytes:");
+		buffer.append_uint64(value.storage.bytes.size);
+		buffer.push_back('>');
+		buffer.push_back('"');
 		break;
 	}
+}
+
+inline void append_text_record(
+	reusable_format_buffer& buffer,
+	timestamp_cache& timestamp_cache,
+	const record& entry
+) {
+	const auto timestamp = timestamp_cache.format_utc(entry.timestamp_ns);
+	if (!timestamp.empty()) {
+		buffer.append("timestamp=");
+		buffer.append(timestamp);
+		buffer.push_back(' ');
+	}
+
+	buffer.append("ts=");
+	buffer.append_uint64(entry.timestamp_ns);
+	buffer.append(" level=");
+	buffer.append(level_name(entry.log_level));
+
+	if (!entry.category.empty()) {
+		buffer.append(" category=");
+		buffer.append(entry.category);
+	}
+
+	if (!entry.event_name.empty()) {
+		buffer.append(" event=");
+		buffer.append(entry.event_name);
+	}
+
+	if (entry.thread_id != 0) {
+		buffer.append(" thread_id=");
+		buffer.append_uint64(entry.thread_id);
+	}
+
+	if (entry.task_id != 0) {
+		buffer.append(" task_id=");
+		buffer.append_uint64(entry.task_id);
+	}
+
+	if (!entry.trace_id.empty()) {
+		buffer.append(" trace_id=");
+		buffer.append(entry.trace_id);
+	}
+
+	if (!entry.span_id.empty()) {
+		buffer.append(" span_id=");
+		buffer.append(entry.span_id);
+	}
+
+	if (!entry.traceparent.empty()) {
+		buffer.append(" traceparent=");
+		buffer.append(entry.traceparent);
+	}
+
+	if (!entry.message_template.empty()) {
+		buffer.append(" message=");
+		append_quoted_string(buffer, entry.message_template);
+	}
+
+	for (const auto& current_field : entry.fields) {
+		buffer.push_back(' ');
+		buffer.append(current_field.name);
+		buffer.push_back('=');
+		append_field_value(buffer, current_field.value);
+	}
+
+	if (entry.dropped_count != 0) {
+		buffer.append(" dropped_count=");
+		buffer.append_uint64(entry.dropped_count);
+	}
+}
+
+inline void append_json_record(
+	reusable_format_buffer& buffer,
+	timestamp_cache& timestamp_cache,
+	const record& entry
+) {
+	bool first_member = true;
+	const auto timestamp = timestamp_cache.format_utc(entry.timestamp_ns);
+
+	buffer.push_back('{');
+
+	if (!timestamp.empty()) {
+		append_json_member_name(buffer, "timestamp", first_member);
+		append_json_string(buffer, timestamp);
+	}
+
+	append_json_member_name(buffer, "timestamp_ns", first_member);
+	buffer.append_uint64(entry.timestamp_ns);
+
+	append_json_member_name(buffer, "level", first_member);
+	append_json_string(buffer, level_name(entry.log_level));
+
+	if (!entry.category.empty()) {
+		append_json_member_name(buffer, "category", first_member);
+		append_json_string(buffer, entry.category);
+	}
+
+	if (!entry.event_name.empty()) {
+		append_json_member_name(buffer, "event", first_member);
+		append_json_string(buffer, entry.event_name);
+	}
+
+	if (entry.thread_id != 0) {
+		append_json_member_name(buffer, "thread_id", first_member);
+		buffer.append_uint64(entry.thread_id);
+	}
+
+	if (entry.task_id != 0) {
+		append_json_member_name(buffer, "task_id", first_member);
+		buffer.append_uint64(entry.task_id);
+	}
+
+	if (!entry.trace_id.empty()) {
+		append_json_member_name(buffer, "trace_id", first_member);
+		append_json_string(buffer, entry.trace_id);
+	}
+
+	if (!entry.span_id.empty()) {
+		append_json_member_name(buffer, "span_id", first_member);
+		append_json_string(buffer, entry.span_id);
+	}
+
+	if (!entry.traceparent.empty()) {
+		append_json_member_name(buffer, "traceparent", first_member);
+		append_json_string(buffer, entry.traceparent);
+	}
+
+	if (!entry.message_template.empty()) {
+		append_json_member_name(buffer, "message", first_member);
+		append_json_string(buffer, entry.message_template);
+	}
+
+	for (const auto& current_field : entry.fields) {
+		append_json_member_name(buffer, current_field.name, first_member);
+		append_json_field_value(buffer, current_field.value);
+	}
+
+	if (entry.dropped_count != 0) {
+		append_json_member_name(buffer, "dropped_count", first_member);
+		buffer.append_uint64(entry.dropped_count);
+	}
+
+	buffer.push_back('}');
 }
 
 } // namespace modern::log::detail
@@ -166,169 +358,63 @@ export namespace modern::log {
 class text_formatter {
 public:
 	[[nodiscard]] std::string format(const record& entry) const {
-		std::ostringstream stream;
-		const auto timestamp = detail::format_timestamp_utc(entry.timestamp_ns);
-		if (!timestamp.empty()) {
-			stream << "timestamp=" << timestamp << ' ';
-		}
-
-		stream << "ts=" << entry.timestamp_ns;
-		stream << " level=" << detail::level_name(entry.log_level);
-
-		if (!entry.category.empty()) {
-			stream << " category=" << entry.category;
-		}
-
-		if (!entry.event_name.empty()) {
-			stream << " event=" << entry.event_name;
-		}
-
-		if (entry.thread_id != 0) {
-			stream << " thread_id=" << entry.thread_id;
-		}
-
-		if (entry.task_id != 0) {
-			stream << " task_id=" << entry.task_id;
-		}
-
-		if (!entry.trace_id.empty()) {
-			stream << " trace_id=" << entry.trace_id;
-		}
-
-		if (!entry.span_id.empty()) {
-			stream << " span_id=" << entry.span_id;
-		}
-
-		if (!entry.traceparent.empty()) {
-			stream << " traceparent=" << entry.traceparent;
-		}
-
-		if (!entry.message_template.empty()) {
-			stream << " message=\"" << detail::escape_string(entry.message_template) << '"';
-		}
-
-		for (const auto& current_field : entry.fields) {
-			stream << ' ' << current_field.name << '=';
-			detail::append_field_value(stream, current_field.value);
-		}
-
-		if (entry.dropped_count != 0) {
-			stream << " dropped_count=" << entry.dropped_count;
-		}
-
-		return stream.str();
+		buffer_.reset(detail::estimate_record_size(entry));
+		detail::append_text_record(buffer_, timestamp_cache_, entry);
+		return buffer_.str();
 	}
 
 	[[nodiscard]] std::string format(batch_view batch) const {
-		std::ostringstream stream;
+		buffer_.reset(detail::estimate_batch_size(batch));
 
 		for (std::size_t index = 0; index < batch.size; ++index) {
 			if (index != 0) {
-				stream << '\n';
+				buffer_.push_back('\n');
 			}
 
-			stream << format(batch.data[index]);
+			detail::append_text_record(buffer_, timestamp_cache_, batch.data[index]);
 		}
 
 		if (!batch.empty()) {
-			stream << '\n';
+			buffer_.push_back('\n');
 		}
 
-		return stream.str();
+		return buffer_.str();
 	}
+
+private:
+	mutable detail::timestamp_cache timestamp_cache_{};
+	mutable detail::reusable_format_buffer buffer_{};
 };
 
 class json_formatter {
 public:
 	[[nodiscard]] std::string format(const record& entry) const {
-		std::ostringstream stream;
-		bool first_member = true;
-		const auto timestamp = detail::format_timestamp_utc(entry.timestamp_ns);
-
-		stream << '{';
-
-		if (!timestamp.empty()) {
-			detail::append_json_member_name(stream, "timestamp", first_member);
-			detail::append_json_string(stream, timestamp);
-		}
-
-		detail::append_json_member_name(stream, "timestamp_ns", first_member);
-		stream << entry.timestamp_ns;
-
-		detail::append_json_member_name(stream, "level", first_member);
-		detail::append_json_string(stream, detail::level_name(entry.log_level));
-
-		if (!entry.category.empty()) {
-			detail::append_json_member_name(stream, "category", first_member);
-			detail::append_json_string(stream, entry.category);
-		}
-
-		if (!entry.event_name.empty()) {
-			detail::append_json_member_name(stream, "event", first_member);
-			detail::append_json_string(stream, entry.event_name);
-		}
-
-		if (entry.thread_id != 0) {
-			detail::append_json_member_name(stream, "thread_id", first_member);
-			stream << entry.thread_id;
-		}
-
-		if (entry.task_id != 0) {
-			detail::append_json_member_name(stream, "task_id", first_member);
-			stream << entry.task_id;
-		}
-
-		if (!entry.trace_id.empty()) {
-			detail::append_json_member_name(stream, "trace_id", first_member);
-			detail::append_json_string(stream, entry.trace_id);
-		}
-
-		if (!entry.span_id.empty()) {
-			detail::append_json_member_name(stream, "span_id", first_member);
-			detail::append_json_string(stream, entry.span_id);
-		}
-
-		if (!entry.traceparent.empty()) {
-			detail::append_json_member_name(stream, "traceparent", first_member);
-			detail::append_json_string(stream, entry.traceparent);
-		}
-
-		if (!entry.message_template.empty()) {
-			detail::append_json_member_name(stream, "message", first_member);
-			detail::append_json_string(stream, entry.message_template);
-		}
-
-		for (const auto& current_field : entry.fields) {
-			detail::append_json_member_name(stream, current_field.name, first_member);
-			detail::append_json_field_value(stream, current_field.value);
-		}
-
-		if (entry.dropped_count != 0) {
-			detail::append_json_member_name(stream, "dropped_count", first_member);
-			stream << entry.dropped_count;
-		}
-
-		stream << '}';
-		return stream.str();
+		buffer_.reset(detail::estimate_record_size(entry));
+		detail::append_json_record(buffer_, timestamp_cache_, entry);
+		return buffer_.str();
 	}
 
 	[[nodiscard]] std::string format(batch_view batch) const {
-		std::ostringstream stream;
+		buffer_.reset(detail::estimate_batch_size(batch));
 
 		for (std::size_t index = 0; index < batch.size; ++index) {
 			if (index != 0) {
-				stream << '\n';
+				buffer_.push_back('\n');
 			}
 
-			stream << format(batch.data[index]);
+			detail::append_json_record(buffer_, timestamp_cache_, batch.data[index]);
 		}
 
 		if (!batch.empty()) {
-			stream << '\n';
+			buffer_.push_back('\n');
 		}
 
-		return stream.str();
+		return buffer_.str();
 	}
+
+private:
+	mutable detail::timestamp_cache timestamp_cache_{};
+	mutable detail::reusable_format_buffer buffer_{};
 };
 
 } // namespace modern::log
