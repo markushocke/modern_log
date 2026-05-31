@@ -2,6 +2,10 @@ if(NOT MODERN_LOG_BUILD_BENCHMARKS)
     return()
 endif()
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-deprecated-declarations)
+endif()
+
 add_custom_target(modern_log_benchmarks)
 
 add_executable(modern_log_hot_path_benchmark

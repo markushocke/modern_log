@@ -90,6 +90,13 @@ target_link_libraries(modern_log
         ${MODERN_LOG_IO_TARGET}
 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Clang + libstdc++ 13 emits deprecated aligned_storage warnings from
+    # standard-library internals such as std::make_shared and std::async.
+    # Suppress this toolchain noise while keeping the project build usable.
+    target_compile_options(modern_log PRIVATE -Wno-deprecated-declarations)
+endif()
+
 add_subdirectory(tests)
 add_subdirectory(examples)
 add_subdirectory(benchmarks)

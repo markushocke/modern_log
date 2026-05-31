@@ -1,0 +1,88 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "vscode-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-vscode/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MODERN_LOG_BUILD_TESTS": "ON",
+        "MODERN_LOG_BUILD_EXAMPLES": "ON",
+        "MODERN_LOG_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "vscode-debug",
+      "displayName": "VS Code Debug",
+      "description": "Debug configure preset for the VS Code CMake Tools extension.",
+      "inherits": "vscode-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "vscode-release",
+      "displayName": "VS Code Release",
+      "description": "Release configure preset for the VS Code CMake Tools extension.",
+      "inherits": "vscode-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "vscode-debug",
+      "displayName": "VS Code Debug Tests",
+      "configurePreset": "vscode-debug",
+      "targets": [
+        "modern_log_tests"
+      ]
+    },
+    {
+      "name": "vscode-release",
+      "displayName": "VS Code Release Tests",
+      "configurePreset": "vscode-release",
+      "targets": [
+        "modern_log_tests"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "vscode-debug",
+      "displayName": "VS Code Debug modern_log tests",
+      "configurePreset": "vscode-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "^modern_log\\."
+        }
+      }
+    },
+    {
+      "name": "vscode-release",
+      "displayName": "VS Code Release modern_log tests",
+      "configurePreset": "vscode-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "^modern_log\\."
+        }
+      }
+    }
+  ]
+}

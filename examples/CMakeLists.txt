@@ -2,6 +2,10 @@ if(NOT MODERN_LOG_BUILD_EXAMPLES)
     return()
 endif()
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-deprecated-declarations)
+endif()
+
 add_custom_target(modern_log_examples)
 
 function(modern_log_add_example target_name source_file)

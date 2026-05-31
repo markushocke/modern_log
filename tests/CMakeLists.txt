@@ -2,6 +2,10 @@ if(NOT MODERN_LOG_BUILD_TESTS)
     return()
 endif()
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-deprecated-declarations)
+endif()
+
 add_custom_target(modern_log_tests)
 
 add_executable(modern_log_core_contract_smoke
