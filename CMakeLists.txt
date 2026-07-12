@@ -10,24 +10,51 @@ option(MODERN_LOG_BUILD_TESTS "Build bootstrap test targets" ON)
 option(MODERN_LOG_BUILD_EXAMPLES "Build bootstrap example targets" ON)
 option(MODERN_LOG_BUILD_BENCHMARKS "Build bootstrap benchmark targets" ON)
 
-function(modern_log_resolve_dependency package_name namespaced_target plain_target)
-    if(TARGET ${namespaced_target} OR TARGET ${plain_target})
+include(FetchContent)
+
+set(MODERN_LOG_DEPENDENCY_DIR "${CMAKE_BINARY_DIR}/dependencies" CACHE PATH
+    "Directory for modern_log dependency Git checkouts")
+set(MODERN_TRACE_GIT_REPOSITORY "https://github.com/markushocke/modern_trace.git" CACHE STRING
+    "Git repository for modern_trace")
+set(MODERN_TRACE_GIT_TAG "main" CACHE STRING "Git tag or branch for modern_trace")
+set(MODERN_RUNTIME_GIT_REPOSITORY "https://github.com/markushocke/modern_runtime.git" CACHE STRING
+    "Git repository for modern_runtime")
+set(MODERN_RUNTIME_GIT_TAG "main" CACHE STRING "Git tag or branch for modern_runtime")
+set(MODERN_IO_GIT_REPOSITORY "https://github.com/markushocke/modern_io.git" CACHE STRING
+    "Git repository for modern_io")
+set(MODERN_IO_GIT_TAG "main" CACHE STRING "Git tag or branch for modern_io")
+
+function(modern_log_fetch_dependency package_name repository tag)
+    if(TARGET ${package_name} OR TARGET ${package_name}::${package_name})
         return()
     endif()
 
-    set(binary_checkout "${CMAKE_CURRENT_BINARY_DIR}/deps/${package_name}")
-    set(sibling_checkout "${CMAKE_CURRENT_SOURCE_DIR}/../${package_name}")
+    message(STATUS "modern_log: checking out ${package_name} in ${MODERN_LOG_DEPENDENCY_DIR}/${package_name}")
+    FetchContent_Declare(
+        ${package_name}
+        GIT_REPOSITORY "${repository}"
+        GIT_TAG "${tag}"
+        GIT_SHALLOW TRUE
+        SOURCE_DIR "${MODERN_LOG_DEPENDENCY_DIR}/${package_name}"
+        BINARY_DIR "${CMAKE_BINARY_DIR}/dependencies-build/${package_name}"
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(${package_name})
+endfunction()
 
-    if(EXISTS "${binary_checkout}/CMakeLists.txt")
-        message(STATUS "modern_log: using ${package_name} from ${binary_checkout}")
-        add_subdirectory("${binary_checkout}" "${CMAKE_CURRENT_BINARY_DIR}/extern/${package_name}" EXCLUDE_FROM_ALL)
-    elseif(EXISTS "${sibling_checkout}/CMakeLists.txt")
-        message(STATUS "modern_log: using ${package_name} from ${sibling_checkout}")
-        add_subdirectory("${sibling_checkout}" "${CMAKE_CURRENT_BINARY_DIR}/extern/${package_name}" EXCLUDE_FROM_ALL)
-    else()
-        message(STATUS "modern_log: resolving ${package_name} via find_package")
-        find_package(${package_name} CONFIG REQUIRED)
-    endif()
+function(modern_log_add_test_include_root directory_path include_root)
+    get_property(directory_targets DIRECTORY "${directory_path}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(target_name IN LISTS directory_targets)
+        get_target_property(target_source_dir ${target_name} SOURCE_DIR)
+        if(target_source_dir MATCHES "^${include_root}/tests(/|$)")
+            target_include_directories(${target_name} PRIVATE "${include_root}")
+        endif()
+    endforeach()
+
+    get_property(subdirectories DIRECTORY "${directory_path}" PROPERTY SUBDIRECTORIES)
+    foreach(subdirectory IN LISTS subdirectories)
+        modern_log_add_test_include_root("${subdirectory}" "${include_root}")
+    endforeach()
 endfunction()
 
 function(modern_log_pick_dependency_target out_var namespaced_target plain_target)
@@ -54,9 +81,11 @@ function(modern_log_disable_vendored_tests directory_path)
     endforeach()
 endfunction()
 
-modern_log_resolve_dependency(modern_trace modern_trace::modern_trace modern_trace)
-modern_log_resolve_dependency(modern_runtime modern_runtime::modern_runtime modern_runtime)
-modern_log_resolve_dependency(modern_io modern_io::modern_io modern_io)
+modern_log_fetch_dependency(modern_trace "${MODERN_TRACE_GIT_REPOSITORY}" "${MODERN_TRACE_GIT_TAG}")
+modern_log_fetch_dependency(modern_runtime "${MODERN_RUNTIME_GIT_REPOSITORY}" "${MODERN_RUNTIME_GIT_TAG}")
+modern_log_fetch_dependency(modern_io "${MODERN_IO_GIT_REPOSITORY}" "${MODERN_IO_GIT_TAG}")
+FetchContent_GetProperties(modern_io)
+modern_log_add_test_include_root("${modern_io_SOURCE_DIR}" "${modern_io_SOURCE_DIR}")
 
 modern_log_pick_dependency_target(MODERN_LOG_TRACE_TARGET modern_trace::modern_trace modern_trace)
 modern_log_pick_dependency_target(MODERN_LOG_RUNTIME_TARGET modern_runtime::modern_runtime modern_runtime)
