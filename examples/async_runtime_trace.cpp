@@ -25,7 +25,7 @@ int main() {
 		.build();
 
 	{
-		modern::runtime::TraceContextScope scope{trace};
+		modern::trace_context_scope scope{trace};
 		logger.category("runtime").info("runtime scheduled");
 	}
 

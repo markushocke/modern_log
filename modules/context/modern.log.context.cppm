@@ -21,10 +21,6 @@ namespace modern::log::detail {
 	);
 }
 
-[[nodiscard]] inline std::uint64_t pointer_fingerprint(const void* value) noexcept {
-	return static_cast<std::uint64_t>(std::hash<const void*>{}(value));
-}
-
 } // namespace modern::log::detail
 
 export namespace modern::log {
@@ -59,11 +55,7 @@ public:
 		context_snapshot snapshot{};
 		snapshot.thread_id = current_thread_id_context();
 
-		const auto environment = modern::runtime::current_task_environment_value();
-
-		if (environment.scheduler != nullptr) {
-			snapshot.task_id = pointer_fingerprint(environment.scheduler);
-		}
+		const auto environment = modern::current_task_environment_value();
 
 		if (environment.trace_context && environment.trace_context->is_valid()) {
 			auto trace = std::make_shared<modern::trace::TraceContext>(*environment.trace_context);
@@ -76,9 +68,9 @@ public:
 				snapshot.span_id = snapshot.traceparent.substr(36, 16);
 			}
 
-			if (snapshot.task_id == 0) {
-				snapshot.task_id = pointer_fingerprint(trace.get());
-			}
+			snapshot.task_id = static_cast<std::uint64_t>(
+				std::hash<const void*>{}(trace.get())
+			);
 		}
 
 		return snapshot;
