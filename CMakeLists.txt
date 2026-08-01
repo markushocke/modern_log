@@ -23,10 +23,10 @@ set(MODERN_TRACE_GIT_REPOSITORY "https://github.com/markushocke/modern_trace.git
 set(MODERN_TRACE_GIT_TAG "f9a9250a0275d4a0a67a6dc751dec67e377a0c2a" CACHE STRING "Pinned modern_trace revision")
 set(MODERN_RUNTIME_GIT_REPOSITORY "https://github.com/markushocke/modern_runtime.git" CACHE STRING
     "Git repository for modern_runtime")
-set(MODERN_RUNTIME_GIT_TAG "f1fe65b65889d9d13ee2e232c7129455bf11971f" CACHE STRING "Pinned modern_runtime revision")
+set(MODERN_RUNTIME_GIT_TAG "4bdcadd7bb1832436a3d0adf9ea6e4b148218065" CACHE STRING "Pinned modern_runtime revision")
 set(MODERN_IO_GIT_REPOSITORY "https://github.com/markushocke/modern_io.git" CACHE STRING
     "Git repository for modern_io")
-set(MODERN_IO_GIT_TAG "e0bd2fb10510ab800818b300239f7a1919e5bd7a" CACHE STRING "Pinned modern_io revision")
+set(MODERN_IO_GIT_TAG "e200f3f4e7b1e447ec56624af6f72e26be81e891" CACHE STRING "Pinned modern_io revision")
 
 function(modern_log_resolve_dependency package_name namespaced_target local_root repository tag out_target)
     if(TARGET ${namespaced_target})
