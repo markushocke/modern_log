@@ -1,0 +1,38 @@
+if(TARGET modern_log::modern_log)
+    return()
+endif()
+
+get_filename_component(_MODERN_LOG_PREFIX "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(_MODERN_LOG_PREFIX "${_MODERN_LOG_PREFIX}" PATH)
+get_filename_component(_MODERN_LOG_PREFIX "${_MODERN_LOG_PREFIX}" PATH)
+get_filename_component(_MODERN_LOG_PREFIX "${_MODERN_LOG_PREFIX}" PATH)
+
+add_library(modern_log::modern_log STATIC IMPORTED)
+set_target_properties(modern_log::modern_log PROPERTIES
+    IMPORTED_LOCATION "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_LIBDIR@/libmodern_log.a"
+    INTERFACE_COMPILE_FEATURES "cxx_std_23"
+    INTERFACE_INCLUDE_DIRECTORIES "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log"
+    INTERFACE_LINK_LIBRARIES "modern_trace::modern_trace;modern_runtime::modern_runtime;modern_io::modern_io")
+
+set(_MODERN_LOG_MODULES
+    "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/modern.log.cppm"
+    "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/core/modern.log.core.cppm"
+    "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/async/modern.log.async.cppm"
+    "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/format/modern.log.format.cppm"
+    "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/sinks/modern.log.sinks.cppm"
+    "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/context/modern.log.context.cppm"
+    "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/metrics/modern.log.metrics.cppm")
+
+set_property(TARGET modern_log::modern_log PROPERTY IMPORTED_CXX_MODULES_NOCONFIG
+    "modern.log=${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/modern.log.cppm"
+    "modern.log:core=${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/core/modern.log.core.cppm"
+    "modern.log:async=${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/async/modern.log.async.cppm"
+    "modern.log:format=${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/format/modern.log.format.cppm"
+    "modern.log:sinks=${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/sinks/modern.log.sinks.cppm"
+    "modern.log:context=${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/context/modern.log.context.cppm"
+    "modern.log:metrics=${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log/modules/metrics/modern.log.metrics.cppm")
+
+target_sources(modern_log::modern_log INTERFACE
+    FILE_SET cxx_modules TYPE CXX_MODULES
+    BASE_DIRS "${_MODERN_LOG_PREFIX}/@CMAKE_INSTALL_INCLUDEDIR@/modern_log"
+    FILES ${_MODERN_LOG_MODULES})
