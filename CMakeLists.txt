@@ -20,13 +20,13 @@ set(MODERN_RUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../modern_runtime" CACHE PA
 set(MODERN_IO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../modern_io" CACHE PATH "Local modern_io checkout")
 set(MODERN_TRACE_GIT_REPOSITORY "https://github.com/markushocke/modern_trace.git" CACHE STRING
     "Git repository for modern_trace")
-set(MODERN_TRACE_GIT_TAG "f9a9250a0275d4a0a67a6dc751dec67e377a0c2a" CACHE STRING "Pinned modern_trace revision")
+set(MODERN_TRACE_GIT_TAG "master" CACHE STRING "modern_trace branch")
 set(MODERN_RUNTIME_GIT_REPOSITORY "https://github.com/markushocke/modern_runtime.git" CACHE STRING
     "Git repository for modern_runtime")
-set(MODERN_RUNTIME_GIT_TAG "4bdcadd7bb1832436a3d0adf9ea6e4b148218065" CACHE STRING "Pinned modern_runtime revision")
+set(MODERN_RUNTIME_GIT_TAG "master" CACHE STRING "modern_runtime branch")
 set(MODERN_IO_GIT_REPOSITORY "https://github.com/markushocke/modern_io.git" CACHE STRING
     "Git repository for modern_io")
-set(MODERN_IO_GIT_TAG "e200f3f4e7b1e447ec56624af6f72e26be81e891" CACHE STRING "Pinned modern_io revision")
+set(MODERN_IO_GIT_TAG "master" CACHE STRING "modern_io branch")
 
 function(modern_log_resolve_dependency package_name namespaced_target local_root repository tag out_target)
     if(TARGET ${namespaced_target})
@@ -43,7 +43,7 @@ function(modern_log_resolve_dependency package_name namespaced_target local_root
 
     if(NOT TARGET ${namespaced_target})
         include(FetchContent)
-        message(STATUS "modern_log: fetching pinned ${package_name}@${tag}")
+        message(STATUS "modern_log: fetching ${package_name}@${tag}")
         FetchContent_Declare(
             ${package_name}
             GIT_REPOSITORY "${repository}"
