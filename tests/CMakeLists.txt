@@ -207,6 +207,7 @@ target_link_libraries(modern_log_async_drain_semantics_smoke PRIVATE modern_log:
 
 add_dependencies(modern_log_tests modern_log_async_drain_semantics_smoke)
 add_test(NAME modern_log.async_drain_semantics_smoke COMMAND modern_log_async_drain_semantics_smoke)
+set_tests_properties(modern_log.async_drain_semantics_smoke PROPERTIES TIMEOUT 5)
 
 add_executable(modern_log_external_runtime_io_smoke
     external_runtime_io_smoke.cpp
