@@ -520,6 +520,10 @@ private:
 				}
 
 				if (queue_.empty()) {
+					shared_flags_.draining = false;
+					shared_flags_.drain_state = trace_drain_state::Idle;
+					lock.unlock();
+					idle_cv_.notify_all();
 					continue;
 				}
 

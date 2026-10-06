@@ -70,9 +70,14 @@ int main() {
 		.flush_interval(24h)
 		.build();
 
+	// Empty and consecutive flushes must complete even when there is no work.
+	logger.flush();
+	logger.flush();
+
 	logger.info("one");
 	logger.info("two");
 	logger.info("three");
+	logger.flush();
 	logger.flush();
 
 	const bool wrote = sink->wait_for_write_calls(1, 250ms);
