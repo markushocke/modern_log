@@ -6,6 +6,7 @@ module;
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <span>
 #include <stdexcept>
@@ -81,6 +82,32 @@ public:
 	virtual void write(batch_view batch) = 0;
 
 	virtual void flush() {}
+};
+
+// Serializes access to a shared sink, including its formatter and output stream.
+// All callers must access the underlying sink through this shared wrapper.
+class synchronized_sink final : public sink {
+public:
+	explicit synchronized_sink(std::shared_ptr<sink> target)
+	    : target_(std::move(target)) {
+		if (!target_) {
+			throw std::invalid_argument("synchronized_sink requires a valid sink");
+		}
+	}
+
+	void write(batch_view batch) override {
+		std::lock_guard lock(mutex_);
+		target_->write(batch);
+	}
+
+	void flush() override {
+		std::lock_guard lock(mutex_);
+		target_->flush();
+	}
+
+private:
+	std::shared_ptr<sink> target_{};
+	std::mutex mutex_{};
 };
 
 enum class remote_payload_format : std::uint8_t {

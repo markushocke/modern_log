@@ -194,6 +194,28 @@ timestamp=2026-05-31T10:15:30.123456789Z ts=1780222530123456789 level=info messa
 timestamp=2026-05-31T10:15:30.123456889Z ts=1780222530123456889 level=warn category=render message="shader fallback"
 ```
 
+### Thread-safe synchronous logging
+
+The synchronous `logger` does not serialize sink calls. Wrap a sink once in
+`synchronized_sink` when multiple threads will share it:
+
+```cpp
+import modern.log;
+
+#include <memory>
+
+auto console = std::make_shared<modern::log::synchronized_sink>(
+    std::make_shared<modern::log::console_sink>()
+);
+auto log = modern::log::logger::builder().sink(console).build();
+```
+
+Share **the same wrapper instance** across all loggers writing to that sink.
+Do not also call the underlying sink directly or wrap it independently in
+different mutexes. The wrapper synchronizes individual `write()` and
+`flush()` calls; the asynchronous logger normally serializes its own drain
+writes and does not need this wrapper for sinks it exclusively owns.
+
 ## Cool Use Cases
 
 ### 1. Structured asset pipeline events

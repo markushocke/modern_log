@@ -108,6 +108,16 @@ target_link_libraries(modern_log_sync_sinks_smoke PRIVATE modern_log::modern_log
 add_dependencies(modern_log_tests modern_log_sync_sinks_smoke)
 add_test(NAME modern_log.sync_sinks_smoke COMMAND modern_log_sync_sinks_smoke)
 
+add_executable(modern_log_synchronized_sink_smoke
+    synchronized_sink_smoke.cpp
+)
+
+target_compile_features(modern_log_synchronized_sink_smoke PRIVATE cxx_std_23)
+target_link_libraries(modern_log_synchronized_sink_smoke PRIVATE modern_log::modern_log)
+
+add_dependencies(modern_log_tests modern_log_synchronized_sink_smoke)
+add_test(NAME modern_log.synchronized_sink_smoke COMMAND modern_log_synchronized_sink_smoke)
+
 add_executable(modern_log_rotating_file_sink_smoke
     rotating_file_sink_smoke.cpp
 )
